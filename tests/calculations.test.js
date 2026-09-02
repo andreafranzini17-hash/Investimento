@@ -1,0 +1,12 @@
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+const C = globalThis.BankrollCore;
+assert(C.tradingGain(100, 130, 0, 0) === 30, "profitto semplice");
+assert(C.tradingGain(130, 350, 200, 0) === 20, "deposito non deve essere profitto");
+assert(C.tradingGain(350, 270, 0, 100) === 20, "prelievo non deve essere perdita");
+assert(C.gainPercent(50, 1000) === 5, "gain percentuale su capitale di riferimento");
+assert(C.gainPercent(50, 0) === 0, "divisione per zero");
+assert(C.daysBetween("2026-03-28", "2026-03-30") === 2, "calcolo giorni stabile");
+const p={capitaleIniziale:1000,entries:[{date:"2026-09-01",fine:100,deposito:100,prelievo:0},{date:"2026-09-02",fine:150,deposito:0,prelievo:0}]};
+C.recalculateEntries(p);
+assert(p.entries[0].gainEuro===0 && p.entries[1].gainEuro===50, "primo deposito e profitto successivo");
+console.log("Tutti i test superati");

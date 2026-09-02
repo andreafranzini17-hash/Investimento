@@ -29,3 +29,12 @@ Dopo una nuova pubblicazione, chiudi e riapri la PWA se il telefono mostra ancor
 
 Firebase è configurato lato client. Se utilizzi Firebase, le regole di sicurezza
 Firestore e Authentication devono essere configurate correttamente nel tuo progetto Firebase.
+
+
+## Firebase
+
+Questa versione include la configurazione Firebase e il login con Google. Prima dell'uso:
+1. Firebase Authentication → Metodo di accesso → Google deve essere abilitato.
+2. Authentication → Impostazioni → Domini autorizzati: aggiungi il dominio `investimento.pages.dev` (oppure il tuo esatto dominio Cloudflare).
+3. Firestore → Regole: copia le regole dal file `FIRESTORE_RULES.txt` e pubblicale.
+4. Accedi con lo stesso account Google su PC e telefono.

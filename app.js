@@ -22,12 +22,22 @@
   const addDays = (iso, n) => { const d = parseLocalDate(iso); d.setDate(d.getDate() + Math.round(n)); return isoFromLocalDate(d); };
   const newId = () => (crypto && crypto.randomUUID ? crypto.randomUUID() : "p_" + Date.now() + "_" + Math.random().toString(36).slice(2));
 
+  // Configurazione Firebase del progetto. La sicurezza dei dati è gestita da Authentication e dalle regole Firestore.
+  const DEFAULT_FIREBASE_CONFIG = {
+    apiKey: "AIzaSyC-pTZ7aqdRVcSiLYImyE9Z3mmzqCsSNnw",
+    authDomain: "investimento-120ae.firebaseapp.com",
+    projectId: "investimento-120ae",
+    storageBucket: "investimento-120ae.firebasestorage.app",
+    messagingSenderId: "705759841870",
+    appId: "1:705759841870:web:6685dca9af6324093f3d1f"
+  };
+
   const store = {
     getProjects() { try { return JSON.parse(localStorage.getItem("bf_projects")) || []; } catch (e) { return []; } },
     setProjects(list) { localStorage.setItem("bf_projects", JSON.stringify(list)); },
     getActiveId() { return localStorage.getItem("bf_active_id") || null; },
     setActiveId(id) { localStorage.setItem("bf_active_id", id || ""); },
-    getFirebaseConfig() { try { return JSON.parse(localStorage.getItem("bf_firebase_config")); } catch (e) { return null; } },
+    getFirebaseConfig() { try { return JSON.parse(localStorage.getItem("bf_firebase_config")) || DEFAULT_FIREBASE_CONFIG; } catch (e) { return DEFAULT_FIREBASE_CONFIG; } },
     setFirebaseConfig(cfg) { localStorage.setItem("bf_firebase_config", JSON.stringify(cfg)); },
     clearFirebaseConfig() { localStorage.removeItem("bf_firebase_config"); },
     migrateLegacy() {
@@ -64,7 +74,7 @@
     page: "progetti",
     authUser: null,
     syncError: "",
-    syncMode: "login",
+    syncMode: "google",
     configInput: "",
     askingFirstDeposit: false,
     projectDraft: null,
@@ -210,6 +220,25 @@
   }
 
   function unsubscribeCloud() { if (fbUnsub) { fbUnsub(); fbUnsub = null; } }
+
+  async function signInWithGoogle() {
+    if (!fbAuth || typeof firebase === "undefined") return;
+    state.syncError = "";
+    render();
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    try {
+      await fbAuth.signInWithPopup(provider);
+    } catch (err) {
+      const code = err && err.code ? err.code : "";
+      if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
+        await fbAuth.signInWithRedirect(provider);
+        return;
+      }
+      state.syncError = "Errore nell'accesso con Google: " + (err && err.message ? err.message : String(err));
+      render();
+    }
+  }
 
   function writeToCloud() {
     if (suppressCloudWrite || !fbAuth || !fbAuth.currentUser || !fbDb) return;
@@ -993,77 +1022,32 @@
 
   // ---------------- Sync page ----------------
   function renderSync() {
-    const cfg = store.getFirebaseConfig();
     $app.innerHTML = `
       ${state.projects.length ? renderTabbar() : `<button id="backBtn" class="btn-small" style="margin-bottom:1rem;">← Indietro</button>`}
       <div class="title" style="margin-bottom:1rem;">Sincronizzazione</div>
-      ${!cfg ? `
-        <div class="card">
-          <div class="label">Incolla qui la configurazione Firebase</div>
-          <div class="muted" style="font-size:12px;margin-bottom:8px;">Il blocco che inizia con "const firebaseConfig = {...}" preso da Impostazioni progetto → Le tue app.</div>
-          <textarea id="cfgInput" rows="8" style="width:100%;background:#1F2C42;border:1px solid rgba(232,236,241,0.08);border-radius:8px;color:#E8ECF1;padding:10px;font-size:12px;font-family:'IBM Plex Mono',monospace;box-sizing:border-box;">${state.configInput}</textarea>
-          ${state.syncError ? `<div class="error">${state.syncError}</div>` : ""}
-          <button id="saveCfgBtn" class="btn-primary" style="margin-top:0.8rem;">Salva configurazione</button>
-        </div>
-      ` : state.authUser ? `
+      ${state.authUser ? `
         <div class="card">
           <div class="label">Connesso come</div>
-          <div class="mono" style="font-size:15px;margin-bottom:1rem;">${state.authUser.email}</div>
-          <div class="muted" style="font-size:12px;margin-bottom:1rem;">I dati si sincronizzano automaticamente tra tutti i dispositivi con cui accedi con questa email.</div>
+          <div class="mono" style="font-size:15px;margin-bottom:1rem;">${escapeHTML(state.authUser.email || "Utente Google")}</div>
+          <div class="muted" style="font-size:12px;margin-bottom:1rem;">I dati si sincronizzano automaticamente tra PC e telefono quando accedi con lo stesso account Google.</div>
           <button id="logoutBtn" class="btn-ghost" style="margin-top:0;">Disconnetti da questo dispositivo</button>
         </div>
       ` : `
         <div class="card">
-          <div class="label">${state.syncMode === "login" ? "Accedi" : "Crea account"}</div>
-          <input id="syncEmail" type="email" placeholder="email@esempio.com" autocomplete="username">
-          <input id="syncPassword" type="password" placeholder="Password (min. 6 caratteri)" autocomplete="${state.syncMode === "login" ? "current-password" : "new-password"}" style="margin-bottom:0.4rem;">
-          ${state.syncError ? `<div class="error">${state.syncError}</div>` : ""}
-          <button id="syncSubmitBtn" class="btn-primary" style="margin-top:0.6rem;">${state.syncMode === "login" ? "Accedi" : "Registrati"}</button>
-          <button id="syncToggleBtn" class="btn-ghost">${state.syncMode === "login" ? "Non hai un account? Registrati" : "Hai già un account? Accedi"}</button>
+          <div class="label">Sincronizza i tuoi dati</div>
+          <div class="muted" style="font-size:13px;margin-bottom:1rem;">Accedi con lo stesso account Google sul PC e sul telefono per vedere automaticamente gli stessi progetti.</div>
+          ${state.syncError ? `<div class="error">${escapeHTML(state.syncError)}</div>` : ""}
+          <button id="googleLoginBtn" class="btn-primary" style="margin-top:0.4rem;">Accedi con Google</button>
         </div>
-        <button id="removeCfgBtn" class="btn-ghost">Rimuovi configurazione sincronizzazione</button>
       `}
     `;
     bindTabbar();
     const backBtn = document.getElementById("backBtn");
     if (backBtn) backBtn.addEventListener("click", () => setState({ page: "progetti" }));
-
-    const saveCfgBtn = document.getElementById("saveCfgBtn");
-    if (saveCfgBtn) saveCfgBtn.addEventListener("click", () => {
-      const text = document.getElementById("cfgInput").value;
-      const parsed = parseFirebaseConfigInput(text);
-      if (!parsed) return setState({ syncError: "Non riesco a leggere questa configurazione. Controlla di aver incollato tutto il blocco." });
-      store.setFirebaseConfig(parsed);
-      setState({ syncError: "", configInput: "" });
-      initFirebaseIfConfigured();
-    });
-    const cfgInputEl = document.getElementById("cfgInput");
-    if (cfgInputEl) cfgInputEl.addEventListener("input", (e) => { state.configInput = e.target.value; });
-
     const logoutBtn = document.getElementById("logoutBtn");
     if (logoutBtn) logoutBtn.addEventListener("click", () => { if (fbAuth) fbAuth.signOut(); });
-
-    const syncToggleBtn = document.getElementById("syncToggleBtn");
-    if (syncToggleBtn) syncToggleBtn.addEventListener("click", () => setState({ syncMode: state.syncMode === "login" ? "register" : "login", syncError: "" }));
-
-    const removeCfgBtn = document.getElementById("removeCfgBtn");
-    if (removeCfgBtn) removeCfgBtn.addEventListener("click", () => {
-      if (confirm("Rimuovere la configurazione di sincronizzazione? I dati locali su questo dispositivo restano.")) {
-        unsubscribeCloud();
-        store.clearFirebaseConfig();
-        setState({ authUser: null, syncError: "" });
-      }
-    });
-
-    const syncSubmitBtn = document.getElementById("syncSubmitBtn");
-    if (syncSubmitBtn) syncSubmitBtn.addEventListener("click", () => {
-      const email = document.getElementById("syncEmail").value.trim();
-      const password = document.getElementById("syncPassword").value;
-      if (!email || !password) return setState({ syncError: "Inserisci email e password." });
-      setState({ syncError: "" });
-      const action = state.syncMode === "login" ? fbAuth.signInWithEmailAndPassword(email, password) : fbAuth.createUserWithEmailAndPassword(email, password);
-      action.catch((err) => setState({ syncError: traduciErroreFirebase(err) }));
-    });
+    const googleLoginBtn = document.getElementById("googleLoginBtn");
+    if (googleLoginBtn) googleLoginBtn.addEventListener("click", signInWithGoogle);
   }
 
   function traduciErroreFirebase(err) {
