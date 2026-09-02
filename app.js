@@ -415,11 +415,14 @@
 
     const prossimoStake = reale * (p.stakePercent / 100);
     const mov = totaliMovimentiOf(p);
+    // Flusso esterno: prelievi positivi, depositi negativi.
+    // Non è un profitto trading: indica soltanto il denaro entrato/uscito dalle tue tasche.
+    const flussoDPNetto = mov.prelievi - mov.depositi;
 
     return {
       giorniTotali, giorniTrascorsi, giorniRimanentiOggi,
       reale, perf, cumGainEuro, cumGainPercent, scostamentoEuro, scostamentoGiorni, dataEquiv,
-      mediaGiornoDinamica, rateComposto, prossimoStake, importoRimanente, mov,
+      mediaGiornoDinamica, rateComposto, prossimoStake, importoRimanente, mov, flussoDPNetto,
     };
   }
 
@@ -617,7 +620,7 @@
           <div class="eyebrow">${p.nome}${chiuso ? " · CHIUSO" : ""}</div>
           <div class="title">${fmtEuro(d.reale)}</div>
           <div style="font-size:13px;">
-            <span class="mono ${d.cumGainEuro >= 0 ? "green" : "red"}">${d.cumGainEuro >= 0 ? "+" : ""}${fmtEuro(d.cumGainEuro)} (${d.cumGainEuro >= 0 ? "+" : ""}${fmtPct(d.cumGainPercent)}) performance pura</span>
+            <span class="mono ${d.cumGainEuro >= 0 ? "green" : "red"}">${d.cumGainEuro >= 0 ? "+" : ""}${fmtEuro(d.cumGainEuro)} (${d.cumGainEuro >= 0 ? "+" : ""}${fmtPct(d.cumGainPercent)}) Profitto/Perdita trading</span>
           </div>
         </div>
         <button id="editBtn" class="btn-small">Modifica</button>
@@ -656,10 +659,16 @@
       `; })()}
 
       ${(d.mov.depositi > 0 || d.mov.prelievi > 0) ? `
-        <div class="card" style="padding:0.7rem 1.1rem;">
-          <div style="display:flex;justify-content:space-between;font-size:12px;">
-            <span class="muted">Depositi totali: <span class="mono red">+${fmtEuro(d.mov.depositi)}</span></span>
-            <span class="muted">Prelievi totali: <span class="mono green">-${fmtEuro(d.mov.prelievi)}</span></span>
+        <div class="card">
+          <div class="label" style="margin-bottom:10px;">Riepilogo movimenti</div>
+          <div class="grid-2" style="margin-bottom:10px;">
+            <div><div class="muted" style="font-size:11px;">Depositi totali</div><div class="mono red">-${fmtEuro(d.mov.depositi)}</div></div>
+            <div><div class="muted" style="font-size:11px;">Prelievi totali</div><div class="mono green">+${fmtEuro(d.mov.prelievi)}</div></div>
+          </div>
+          <div style="border-top:1px solid rgba(255,255,255,.08);padding-top:10px;">
+            <div class="muted" style="font-size:11px;">Flusso D/P netto</div>
+            <div class="mono ${d.flussoDPNetto >= 0 ? "green" : "red"}" style="font-size:18px;font-weight:600;">${d.flussoDPNetto >= 0 ? "+" : ""}${fmtEuro(d.flussoDPNetto)}</div>
+            <div class="muted" style="font-size:11px;margin-top:3px;">Prelievi − Depositi</div>
           </div>
         </div>
       ` : ""}
@@ -930,8 +939,9 @@
       ["Data obiettivo", p.dataObiettivo], ["Profitto netto obiettivo", p.budgetTarget], ["Giorni totali periodo", giorniTotali],
       ["Stake % attuale", p.stakePercent], [],
       ["Profitto medio giornaliero necessario (lineare) (€)", giorniTotali > 0 ? (p.budgetTarget / giorniTotali) : 0], [],
-      ["Saldo reale attuale", saldoRealeOf(p)], ["Depositi totali", mov.depositi], ["Prelievi totali", mov.prelievi],
-      ["Performance pura (profitto netto di trading) €", perf],
+      ["Saldo conto attuale", saldoRealeOf(p)], ["Depositi totali", mov.depositi], ["Prelievi totali", mov.prelievi],
+      ["Flusso D/P netto (Prelievi - Depositi)", mov.prelievi - mov.depositi],
+      ["Profitto/Perdita trading €", perf],
       ["Performance pura %", p.capitaleIniziale > 0 ? (perf / p.capitaleIniziale) * 100 : 0],
     ];
     const wsR = XLSX.utils.aoa_to_sheet(riepilogo);
@@ -973,7 +983,8 @@
               ${positivo ? "+" : ""}${fmtEuro(risultatoEuro)}<div style="font-size:11px;">${positivo ? "+" : ""}${fmtPct(risultatoPct)}</div>
             </div>
           </div>
-          <div class="muted" style="font-size:12px;margin-bottom:10px;">Capitale iniziale: ${fmtEuro(p.capitaleIniziale)} · Saldo reale: ${fmtEuro(reale)} · Obiettivo: ${fmtEuro(p.budgetTarget)}</div>
+          <div class="muted" style="font-size:12px;margin-bottom:4px;">Capitale iniziale: ${fmtEuro(p.capitaleIniziale)} · Saldo conto: ${fmtEuro(reale)} · Obiettivo: ${fmtEuro(p.budgetTarget)}</div>
+          <div class="muted" style="font-size:11px;margin-bottom:10px;">📈 Trading: <span class="${risultatoEuro >= 0 ? "green" : "red"} mono">${risultatoEuro >= 0 ? "+" : ""}${fmtEuro(risultatoEuro)}</span> · 💸 Flusso D/P: <span class="${(totaliMovimentiOf(p).prelievi - totaliMovimentiOf(p).depositi) >= 0 ? "green" : "red"} mono">${(totaliMovimentiOf(p).prelievi - totaliMovimentiOf(p).depositi) >= 0 ? "+" : ""}${fmtEuro(totaliMovimentiOf(p).prelievi - totaliMovimentiOf(p).depositi)}</span></div>
           <div style="display:grid;grid-template-columns:${p.stato === "aperto" ? "1fr auto auto" : "1fr auto"};gap:6px;">
             <button class="btn-small apriProgetto" data-id="${p.id}">Apri</button>
             ${p.stato === "aperto" ? `<button class="btn-small modificaProgetto" data-id="${p.id}">✎</button>` : ""}
