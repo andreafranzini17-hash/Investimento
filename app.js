@@ -147,6 +147,8 @@
   // ---------------- Sincronizzazione cloud (Firebase, opzionale) ----------------
   let fbApp = null, fbAuth = null, fbDb = null, fbUnsub = null;
   let suppressCloudWrite = false;
+  let cloudReady = false;
+  let cloudWriteTimer = null;
 
   function utenteStaScrivendo() {
     return state.editingSetup || state.creatingNew || !!state.dailyInput || !!state.depositoInput || !!state.prelievoInput || !!state.configInput;
@@ -178,7 +180,7 @@
       fbDb = firebase.firestore();
       fbAuth.onAuthStateChanged((user) => {
         state.authUser = user ? { email: user.email, uid: user.uid } : null;
-        if (user) subscribeCloud(user.uid); else unsubscribeCloud();
+        if (user) subscribeCloud(user.uid); else { unsubscribeCloud(); cloudReady = false; }
         render();
       });
     } catch (e) {
@@ -188,15 +190,16 @@
 
   function subscribeCloud(uid) {
     unsubscribeCloud();
-    fbUnsub = fbDb.collection("users").doc(uid).onSnapshot((doc) => {
+    cloudReady = false;
+    const ref = fbDb.collection("users").doc(uid);
+    fbUnsub = ref.onSnapshot((doc) => {
       if (doc.exists) {
         const data = doc.data();
         suppressCloudWrite = true;
-        if (data.projects) {
+        if (Array.isArray(data.projects)) {
           state.projects = data.projects;
           state.activeId = data.activeId || (data.projects[0] && data.projects[0].id) || null;
         } else if (data.config) {
-          // migrazione dal formato precedente (progetto singolo)
           const p = {
             id: newId(), nome: "Progetto 1", stato: "aperto", chiusoIl: null,
             capitaleIniziale: data.config.capitaleIniziale, dataInizio: data.config.dataInizio,
@@ -209,11 +212,14 @@
         store.setProjects(state.projects);
         store.setActiveId(state.activeId);
         suppressCloudWrite = false;
-        if (!utenteStaScrivendo()) render();
       } else if (state.projects.length) {
-        writeToCloud();
+        // Primo accesso: carica sul cloud i dati locali del dispositivo.
+        writeToCloud(true);
       }
+      cloudReady = true;
+      if (!utenteStaScrivendo()) render();
     }, (err) => {
+      cloudReady = false;
       state.syncError = "Errore di sincronizzazione: " + (err && err.message ? err.message : String(err));
       if (!utenteStaScrivendo()) render();
     });
@@ -240,12 +246,22 @@
     }
   }
 
-  function writeToCloud() {
+  function writeToCloud(immediate = false) {
     if (suppressCloudWrite || !fbAuth || !fbAuth.currentUser || !fbDb) return;
-    fbDb.collection("users").doc(fbAuth.currentUser.uid).set({ projects: state.projects, activeId: state.activeId }).catch((err) => {
-      state.syncError = "Errore nel salvataggio cloud: " + (err && err.message ? err.message : String(err));
-      if (!utenteStaScrivendo()) render();
-    });
+    const doWrite = () => {
+      fbDb.collection("users").doc(fbAuth.currentUser.uid).set({
+        projects: JSON.parse(JSON.stringify(state.projects)),
+        activeId: state.activeId || null,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        schemaVersion: 2
+      }, { merge: true }).catch((err) => {
+        state.syncError = "Errore nel salvataggio cloud: " + (err && err.message ? err.message : String(err));
+        if (!utenteStaScrivendo()) render();
+      });
+    };
+    if (cloudWriteTimer) clearTimeout(cloudWriteTimer);
+    if (immediate) doWrite();
+    else cloudWriteTimer = setTimeout(doWrite, 250);
   }
 
   // ---------------- Setup form (nuovo progetto o modifica) ----------------
