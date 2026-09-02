@@ -381,6 +381,9 @@
 
     const reale = saldoRealeOf(p);
     const perf = saldoPerformanceOf(p); // profitto netto di trading puro, da 0
+    const movimenti = totaliMovimentiOf(p);
+    const flussoDP = movimenti.prelievi - movimenti.depositi;
+    const flussoDPPercent = p.capitaleIniziale > 0 ? (flussoDP / p.capitaleIniziale) * 100 : 0;
     const cumGainEuro = perf;
     const cumGainPercent = p.capitaleIniziale > 0 ? (perf / p.capitaleIniziale) * 100 : 0;
 
@@ -618,10 +621,12 @@
       <div class="header-row">
         <div>
           <div class="eyebrow">${p.nome}${chiuso ? " · CHIUSO" : ""}</div>
-          <div class="title">${fmtEuro(d.reale)}</div>
-          <div style="font-size:13px;">
-            <span class="mono ${d.cumGainEuro >= 0 ? "green" : "red"}">${d.cumGainEuro >= 0 ? "+" : ""}${fmtEuro(d.cumGainEuro)} (${d.cumGainEuro >= 0 ? "+" : ""}${fmtPct(d.cumGainPercent)}) Profitto/Perdita trading</span>
+          <div class="label" style="margin-bottom:4px;">💸 Flusso D/P netto</div>
+          <div class="title mono ${d.flussoDP >= 0 ? "green" : "red"}">${d.flussoDP >= 0 ? "+" : ""}${fmtEuro(d.flussoDP)}</div>
+          <div style="font-size:13px;margin-bottom:10px;">
+            <span class="mono ${d.flussoDP >= 0 ? "green" : "red"}">${d.flussoDP >= 0 ? "+" : ""}${fmtPct(d.flussoDPPercent)}</span>
           </div>
+          <div class="muted" style="font-size:12px;">🏦 Saldo conto: <span class="mono">${fmtEuro(d.reale)}</span> · 📈 Trading: <span class="mono ${d.perf >= 0 ? "green" : "red"}">${d.perf >= 0 ? "+" : ""}${fmtEuro(d.perf)}</span></div>
         </div>
         <button id="editBtn" class="btn-small">Modifica</button>
       </div>
@@ -969,7 +974,8 @@
       const perf = saldoPerformanceOf(p);
       // La performance è già il profitto/perdita puro: il capitale di riferimento
       // non è un deposito e non deve essere sottratto una seconda volta.
-      const risultatoEuro = perf;
+      const movimenti = totaliMovimentiOf(p);
+      const risultatoEuro = movimenti.prelievi - movimenti.depositi; // Flusso D/P netto: dato principale
       const risultatoPct = p.capitaleIniziale > 0 ? (risultatoEuro / p.capitaleIniziale) * 100 : 0;
       const positivo = risultatoEuro >= 0;
       return `
@@ -984,7 +990,7 @@
             </div>
           </div>
           <div class="muted" style="font-size:12px;margin-bottom:4px;">Capitale iniziale: ${fmtEuro(p.capitaleIniziale)} · Saldo conto: ${fmtEuro(reale)} · Obiettivo: ${fmtEuro(p.budgetTarget)}</div>
-          <div class="muted" style="font-size:11px;margin-bottom:10px;">📈 Trading: <span class="${risultatoEuro >= 0 ? "green" : "red"} mono">${risultatoEuro >= 0 ? "+" : ""}${fmtEuro(risultatoEuro)}</span> · 💸 Flusso D/P: <span class="${(totaliMovimentiOf(p).prelievi - totaliMovimentiOf(p).depositi) >= 0 ? "green" : "red"} mono">${(totaliMovimentiOf(p).prelievi - totaliMovimentiOf(p).depositi) >= 0 ? "+" : ""}${fmtEuro(totaliMovimentiOf(p).prelievi - totaliMovimentiOf(p).depositi)}</span></div>
+          <div class="muted" style="font-size:11px;margin-bottom:10px;">💸 Flusso D/P netto: <span class="${risultatoEuro >= 0 ? "green" : "red"} mono">${risultatoEuro >= 0 ? "+" : ""}${fmtEuro(risultatoEuro)}</span> · 📈 Trading: <span class="${perf >= 0 ? "green" : "red"} mono">${perf >= 0 ? "+" : ""}${fmtEuro(perf)}</span></div>
           <div style="display:grid;grid-template-columns:${p.stato === "aperto" ? "1fr auto auto" : "1fr auto"};gap:6px;">
             <button class="btn-small apriProgetto" data-id="${p.id}">Apri</button>
             ${p.stato === "aperto" ? `<button class="btn-small modificaProgetto" data-id="${p.id}">✎</button>` : ""}
