@@ -149,6 +149,7 @@
   let suppressCloudWrite = false;
   let cloudReady = false;
   let cloudWriteTimer = null;
+  let cloudStatus = "non connesso";
 
   function utenteStaScrivendo() {
     return state.editingSetup || state.creatingNew || !!state.dailyInput || !!state.depositoInput || !!state.prelievoInput || !!state.configInput;
@@ -191,6 +192,7 @@
   function subscribeCloud(uid) {
     unsubscribeCloud();
     cloudReady = false;
+    cloudStatus = "connessione al cloud…";
     const ref = fbDb.collection("users").doc(uid);
     fbUnsub = ref.onSnapshot((doc) => {
       if (doc.exists) {
@@ -217,9 +219,11 @@
         writeToCloud(true);
       }
       cloudReady = true;
+      cloudStatus = doc.exists ? "sincronizzato" : "cloud inizializzato";
       if (!utenteStaScrivendo()) render();
     }, (err) => {
       cloudReady = false;
+      cloudStatus = "errore di sincronizzazione";
       state.syncError = "Errore di sincronizzazione: " + (err && err.message ? err.message : String(err));
       if (!utenteStaScrivendo()) render();
     });
@@ -249,12 +253,14 @@
   function writeToCloud(immediate = false) {
     if (suppressCloudWrite || !fbAuth || !fbAuth.currentUser || !fbDb) return;
     const doWrite = () => {
+      cloudStatus = "salvataggio…";
       fbDb.collection("users").doc(fbAuth.currentUser.uid).set({
         projects: JSON.parse(JSON.stringify(state.projects)),
         activeId: state.activeId || null,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        schemaVersion: 2
-      }, { merge: true }).catch((err) => {
+        schemaVersion: 3
+      }, { merge: true }).then(() => { cloudStatus = "sincronizzato"; }).catch((err) => {
+        cloudStatus = "errore di salvataggio";
         state.syncError = "Errore nel salvataggio cloud: " + (err && err.message ? err.message : String(err));
         if (!utenteStaScrivendo()) render();
       });
@@ -637,12 +643,12 @@
       <div class="header-row">
         <div>
           <div class="eyebrow">${p.nome}${chiuso ? " · CHIUSO" : ""}</div>
-          <div class="label" style="margin-bottom:4px;">💸 Flusso D/P netto</div>
-          <div class="title mono ${d.flussoDP >= 0 ? "green" : "red"}">${d.flussoDP >= 0 ? "+" : ""}${fmtEuro(d.flussoDP)}</div>
+          <div class="label" style="margin-bottom:4px;">📊 Risultato netto reale</div>
+          <div class="title mono ${d.perf >= 0 ? "green" : "red"}">${d.perf >= 0 ? "+" : ""}${fmtEuro(d.perf)}</div>
           <div style="font-size:13px;margin-bottom:10px;">
-            <span class="mono ${d.flussoDP >= 0 ? "green" : "red"}">${d.flussoDP >= 0 ? "+" : ""}${fmtPct(d.flussoDPPercent)}</span>
+            <span class="mono ${d.perf >= 0 ? "green" : "red"}">${d.perf >= 0 ? "+" : ""}${fmtPct(d.cumGainPercent)}</span>
           </div>
-          <div class="muted" style="font-size:12px;">🏦 Saldo conto: <span class="mono">${fmtEuro(d.reale)}</span> · 📈 Trading: <span class="mono ${d.perf >= 0 ? "green" : "red"}">${d.perf >= 0 ? "+" : ""}${fmtEuro(d.perf)}</span></div>
+          <div class="muted" style="font-size:12px;">🏦 Saldo conto: <span class="mono">${fmtEuro(d.reale)}</span> · 💸 Flusso D/P: <span class="mono ${d.flussoDP >= 0 ? "green" : "red"}">${d.flussoDP >= 0 ? "+" : ""}${fmtEuro(d.flussoDP)}</span></div>
         </div>
         <button id="editBtn" class="btn-small">Modifica</button>
       </div>
@@ -991,7 +997,9 @@
       // La performance è già il profitto/perdita puro: il capitale di riferimento
       // non è un deposito e non deve essere sottratto una seconda volta.
       const movimenti = totaliMovimentiOf(p);
-      const risultatoEuro = movimenti.prelievi - movimenti.depositi; // Flusso D/P netto: dato principale
+      const flussoDP = movimenti.prelievi - movimenti.depositi;
+      // Il risultato principale è il profitto/perdita reale: un deposito iniziale non è una perdita.
+      const risultatoEuro = perf;
       const risultatoPct = p.capitaleIniziale > 0 ? (risultatoEuro / p.capitaleIniziale) * 100 : 0;
       const positivo = risultatoEuro >= 0;
       return `
@@ -1006,7 +1014,7 @@
             </div>
           </div>
           <div class="muted" style="font-size:12px;margin-bottom:4px;">Capitale iniziale: ${fmtEuro(p.capitaleIniziale)} · Saldo conto: ${fmtEuro(reale)} · Obiettivo: ${fmtEuro(p.budgetTarget)}</div>
-          <div class="muted" style="font-size:11px;margin-bottom:10px;">💸 Flusso D/P netto: <span class="${risultatoEuro >= 0 ? "green" : "red"} mono">${risultatoEuro >= 0 ? "+" : ""}${fmtEuro(risultatoEuro)}</span> · 📈 Trading: <span class="${perf >= 0 ? "green" : "red"} mono">${perf >= 0 ? "+" : ""}${fmtEuro(perf)}</span></div>
+          <div class="muted" style="font-size:11px;margin-bottom:10px;">💸 Flusso D/P netto: <span class="${flussoDP >= 0 ? "green" : "red"} mono">${flussoDP >= 0 ? "+" : ""}${fmtEuro(flussoDP)}</span> · 🏦 Saldo: <span class="mono">${fmtEuro(reale)}</span></div>
           <div style="display:grid;grid-template-columns:${p.stato === "aperto" ? "1fr auto auto" : "1fr auto"};gap:6px;">
             <button class="btn-small apriProgetto" data-id="${p.id}">Apri</button>
             ${p.stato === "aperto" ? `<button class="btn-small modificaProgetto" data-id="${p.id}">✎</button>` : ""}
@@ -1062,7 +1070,10 @@
         <div class="card">
           <div class="label">Connesso come</div>
           <div class="mono" style="font-size:15px;margin-bottom:1rem;">${escapeHTML(state.authUser.email || "Utente Google")}</div>
-          <div class="muted" style="font-size:12px;margin-bottom:1rem;">I dati si sincronizzano automaticamente tra PC e telefono quando accedi con lo stesso account Google.</div>
+          <div class="muted" style="font-size:12px;margin-bottom:0.4rem;">I dati si sincronizzano automaticamente tra PC e telefono quando accedi con lo stesso account Google.</div>
+          <div class="mono" style="font-size:12px;margin-bottom:0.7rem;">Stato: ${cloudReady ? "✅ " : "⏳ "}${escapeHTML(cloudStatus)}</div>
+          ${state.syncError ? `<div class="error" style="margin-bottom:0.7rem;">${escapeHTML(state.syncError)}</div>` : ""}
+          <button id="forceSyncBtn" class="btn-primary" style="margin:0 0 0.5rem 0;">Forza salvataggio sul cloud</button>
           <button id="logoutBtn" class="btn-ghost" style="margin-top:0;">Disconnetti da questo dispositivo</button>
         </div>
       ` : `
@@ -1077,6 +1088,8 @@
     bindTabbar();
     const backBtn = document.getElementById("backBtn");
     if (backBtn) backBtn.addEventListener("click", () => setState({ page: "progetti" }));
+    const forceSyncBtn = document.getElementById("forceSyncBtn");
+    if (forceSyncBtn) forceSyncBtn.addEventListener("click", () => { state.syncError = ""; writeToCloud(true); setTimeout(render, 300); });
     const logoutBtn = document.getElementById("logoutBtn");
     if (logoutBtn) logoutBtn.addEventListener("click", () => { if (fbAuth) fbAuth.signOut(); });
     const googleLoginBtn = document.getElementById("googleLoginBtn");
