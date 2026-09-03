@@ -1,4 +1,4 @@
-const CACHE_NAME = "bankroll-cloudflare-v2";
+const CACHE_NAME = "bankroll-cloudflare-v3";
 
 const APP_SHELL = [
   "./",

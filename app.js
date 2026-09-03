@@ -189,37 +189,63 @@
     }
   }
 
+  function normalizzaProjectsCloud(raw) {
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === "object") {
+      return Object.keys(raw).sort((a,b) => Number(a) - Number(b)).map(k => raw[k]).filter(Boolean);
+    }
+    return [];
+  }
+
+  function applicaDatiCloud(data) {
+    const projects = normalizzaProjectsCloud(data && data.projects);
+    if (projects.length || (data && Object.prototype.hasOwnProperty.call(data, "projects"))) {
+      suppressCloudWrite = true;
+      state.projects = projects;
+      state.activeId = (data && data.activeId && projects.some(p => p && p.id === data.activeId))
+        ? data.activeId
+        : (projects[0] && projects[0].id) || null;
+      state.projects.forEach((p) => ricalcolaCatena(p));
+      store.setProjects(state.projects);
+      store.setActiveId(state.activeId);
+      suppressCloudWrite = false;
+      return true;
+    }
+    return false;
+  }
+
   function subscribeCloud(uid) {
     unsubscribeCloud();
     cloudReady = false;
-    cloudStatus = "connessione al cloud…";
+    cloudStatus = "caricamento dal cloud…";
+    state.syncError = "";
     const ref = fbDb.collection("users").doc(uid);
-    fbUnsub = ref.onSnapshot((doc) => {
+
+    // Lettura esplicita: evita che un telefono appena aperto mostri solo il localStorage locale.
+    ref.get().then((doc) => {
       if (doc.exists) {
-        const data = doc.data();
-        suppressCloudWrite = true;
-        if (Array.isArray(data.projects)) {
-          state.projects = data.projects;
-          state.activeId = data.activeId || (data.projects[0] && data.projects[0].id) || null;
-        } else if (data.config) {
-          const p = {
-            id: newId(), nome: "Progetto 1", stato: "aperto", chiusoIl: null,
-            capitaleIniziale: data.config.capitaleIniziale, dataInizio: data.config.dataInizio,
-            dataObiettivo: data.config.dataObiettivo, budgetTarget: data.config.budgetTarget,
-            stakePercent: data.config.stakePercent, entries: data.entries || [],
-          };
-          state.projects = [p];
-          state.activeId = p.id;
-        }
-        store.setProjects(state.projects);
-        store.setActiveId(state.activeId);
-        suppressCloudWrite = false;
+        applicaDatiCloud(doc.data() || {});
+        cloudReady = true;
+        cloudStatus = "sincronizzato";
+        if (!utenteStaScrivendo()) render();
       } else if (state.projects.length) {
-        // Primo accesso: carica sul cloud i dati locali del dispositivo.
         writeToCloud(true);
       }
-      cloudReady = true;
-      cloudStatus = doc.exists ? "sincronizzato" : "cloud inizializzato";
+    }).catch((err) => {
+      state.syncError = "Errore nel caricamento cloud: " + (err && err.message ? err.message : String(err));
+      cloudStatus = "errore di sincronizzazione";
+      if (!utenteStaScrivendo()) render();
+    });
+
+    // Listener in tempo reale per PC ↔ telefono.
+    fbUnsub = ref.onSnapshot((doc) => {
+      if (doc.exists) {
+        applicaDatiCloud(doc.data() || {});
+        cloudReady = true;
+        cloudStatus = "sincronizzato";
+      } else if (state.projects.length) {
+        writeToCloud(true);
+      }
       if (!utenteStaScrivendo()) render();
     }, (err) => {
       cloudReady = false;
@@ -1069,11 +1095,11 @@
       ${state.authUser ? `
         <div class="card">
           <div class="label">Connesso come</div>
-          <div class="mono" style="font-size:15px;margin-bottom:1rem;">${escapeHTML(state.authUser.email || "Utente Google")}</div>
+          <div class="mono" style="font-size:15px;margin-bottom:0.35rem;">${escapeHTML(state.authUser.email || "Utente Google")}</div><div class="muted" style="font-size:11px;margin-bottom:0.7rem;">Cloud: ${escapeHTML(cloudStatus)} · Progetti caricati: ${state.projects.length}</div>
           <div class="muted" style="font-size:12px;margin-bottom:0.4rem;">I dati si sincronizzano automaticamente tra PC e telefono quando accedi con lo stesso account Google.</div>
           <div class="mono" style="font-size:12px;margin-bottom:0.7rem;">Stato: ${cloudReady ? "✅ " : "⏳ "}${escapeHTML(cloudStatus)}</div>
           ${state.syncError ? `<div class="error" style="margin-bottom:0.7rem;">${escapeHTML(state.syncError)}</div>` : ""}
-          <button id="forceSyncBtn" class="btn-primary" style="margin:0 0 0.5rem 0;">Forza salvataggio sul cloud</button>
+          <button id="reloadCloudBtn" class="btn-primary" style="margin:0 0 0.5rem 0;">Ricarica progetti dal cloud</button><button id="forceSyncBtn" class="btn-small" style="width:100%;margin:0 0 0.5rem 0;">Forza salvataggio sul cloud</button>
           <button id="logoutBtn" class="btn-ghost" style="margin-top:0;">Disconnetti da questo dispositivo</button>
         </div>
       ` : `
@@ -1088,6 +1114,9 @@
     bindTabbar();
     const backBtn = document.getElementById("backBtn");
     if (backBtn) backBtn.addEventListener("click", () => setState({ page: "progetti" }));
+    const reloadCloudBtn = document.getElementById("reloadCloudBtn");
+    if (reloadCloudBtn) reloadCloudBtn.addEventListener("click", () => { if (fbAuth && fbAuth.currentUser) subscribeCloud(fbAuth.currentUser.uid); });
+
     const forceSyncBtn = document.getElementById("forceSyncBtn");
     if (forceSyncBtn) forceSyncBtn.addEventListener("click", () => { state.syncError = ""; writeToCloud(true); setTimeout(render, 300); });
     const logoutBtn = document.getElementById("logoutBtn");
